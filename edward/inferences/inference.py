@@ -70,16 +70,16 @@ class Inference(object):
       data = {}
 
     check_latent_vars(latent_vars)
-    self.latent_vars = latent_vars
+    self._latent_vars = latent_vars
 
     check_data(data)
-    self.data = {}
+    self._data = {}
     for key, value in six.iteritems(data):
       if isinstance(key, tf.Tensor) and "Placeholder" in key.op.type:
-        self.data[key] = value
+        self._data[key] = value
       elif isinstance(key, (RandomVariable, tf.Tensor)):
         if isinstance(value, (RandomVariable, tf.Tensor)):
-          self.data[key] = value
+          self._data[key] = value
         elif isinstance(value, (float, list, int, np.ndarray, np.number, str)):
           # If value is a Python type, store it in the graph.
           # Assign its placeholder with the key's data type.
@@ -87,7 +87,27 @@ class Inference(object):
             ph = tf.placeholder(key.dtype, np.shape(value))
             var = tf.Variable(ph, trainable=False, collections=[])
             sess.run(var.initializer, {ph: value})
-            self.data[key] = var
+            self._data[key] = var
+
+  @property
+  def data(self):
+    return self._data
+
+  @property
+  def latent_vars(self):
+    return self._latent_vars
+
+  @property
+  def n_iter(self):
+    return self._n_iter
+
+  @property
+  def n_print(self):
+    return self._n_print
+
+  @property
+  def reset(self):
+    return self._reset
 
   def run(self, variables=None, use_coordinator=True, *args, **kwargs):
     """A simple wrapper to run inference.
@@ -137,10 +157,10 @@ class Inference(object):
 
     if use_coordinator:
       # Start input enqueue threads.
-      self.coord = tf.train.Coordinator()
-      self.threads = tf.train.start_queue_runners(coord=self.coord)
+      self._coord = tf.train.Coordinator()
+      self._threads = tf.train.start_queue_runners(coord=self._coord)
 
-    for _ in range(self.n_iter):
+    for _ in range(self._n_iter):
       info_dict = self.update()
       self.print_progress(info_dict)
 
@@ -148,8 +168,8 @@ class Inference(object):
 
     if use_coordinator:
       # Ask threads to stop.
-      self.coord.request_stop()
-      self.coord.join(self.threads)
+      self._coord.request_stop()
+      self._coord.join(self._threads)
 
   @abc.abstractmethod
   def initialize(self, n_iter=1000, n_print=None, scale=None, logdir=None,
@@ -192,37 +212,37 @@ class Inference(object):
     """
     self.n_iter = n_iter
     if n_print is None:
-      self.n_print = int(n_iter / 100)
+      self._n_print = int(n_iter / 100)
     else:
-      self.n_print = n_print
+      self._n_print = n_print
 
-    self.progbar = Progbar(self.n_iter)
-    self.t = tf.Variable(0, trainable=False, name="iteration")
+    self._progbar = Progbar(self.n_iter)
+    self._t = tf.Variable(0, trainable=False, name="iteration")
 
-    self.increment_t = self.t.assign_add(1)
+    self._increment_t = self._t.assign_add(1)
 
     if scale is None:
       scale = {}
     elif not isinstance(scale, dict):
       raise TypeError("scale must be a dict object.")
 
-    self.scale = scale
+    self._scale = scale
 
     if logdir is not None:
-      self.logging = True
+      self._logging = True
       if log_timestamp:
         logdir = os.path.join(
             logdir, datetime.strftime(datetime.utcnow(), "%Y%m%d_%H%M%S"))
 
       self._set_log_variables(log_vars)
-      self.train_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
-      self.summarize = tf.summary.merge_all()
+      self._train_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
+      self._summarize = tf.summary.merge_all()
     else:
-      self.logging = False
+      self._logging = False
 
-    self.debug = debug
-    if self.debug:
-      self.op_check = tf.add_check_numerics_ops()
+    self._debug = debug
+    if self._debug:
+      self._op_check = tf.add_check_numerics_ops()
 
     # Store reset ops which user can call. Subclasses should append
     # any ops needed to reset internal variables in inference.
@@ -253,15 +273,15 @@ class Inference(object):
         feed_dict[key] = value
 
     sess = get_session()
-    t = sess.run(self.increment_t)
+    t = sess.run(self._increment_t)
 
-    if self.debug:
-      sess.run(self.op_check, feed_dict)
+    if self._debug:
+      sess.run(self._op_check, feed_dict)
 
-    if self.logging and self.n_print != 0:
-      if t == 1 or t % self.n_print == 0:
-        summary = sess.run(self.summarize, feed_dict)
-        self.train_writer.add_summary(summary, t)
+    if self._logging and self._n_print != 0:
+      if t == 1 or t % self._n_print == 0:
+        summary = sess.run(self._summarize, feed_dict)
+        self._train_writer.add_summary(summary, t)
 
     return {'t': t}
 
@@ -273,16 +293,16 @@ class Inference(object):
     info_dict : dict
       Dictionary of algorithm-specific information.
     """
-    if self.n_print != 0:
+    if self._n_print != 0:
       t = info_dict['t']
-      if t == 1 or t % self.n_print == 0:
-        self.progbar.update(t)
+      if t == 1 or t % self._n_print == 0:
+        self._progbar.update(t)
 
   def finalize(self):
     """Function to call after convergence.
     """
-    if self.logging:
-      self.train_writer.close()
+    if self._logging:
+      self._train_writer.close()
 
   def _set_log_variables(self, log_vars=None):
     """Log variables to TensorBoard.
