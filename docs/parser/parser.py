@@ -163,7 +163,7 @@ class ReferenceResolver(object):
     with open(filepath, 'w') as f:
       json.dump(json_dict, f)
 
-  def replace_references(self, string, relative_path_to_root):
+  def replace_references(self, string, relative_path_to_root, style='md'):
     """Replace "@{symbol}" references with links to symbol's documentation page.
 
     This functions finds all occurrences of "@{symbol}" in `string`
@@ -188,11 +188,12 @@ class ReferenceResolver(object):
     """
     return re.sub(SYMBOL_REFERENCE_RE,
                   lambda match: self._one_ref(match.group(1),  # pylint: disable=g-long-lambda
-                                              relative_path_to_root),
+                                              relative_path_to_root,
+                                              style),
                   string)
 
   def python_link(self, link_text, ref_full_name, relative_path_to_root,
-                  code_ref=True):
+                  code_ref=True, style='md'):
     """Resolve a "@{python symbol}" reference to a Markdown link.
 
     This will pick the canonical location for duplicate symbols.  The
@@ -214,9 +215,11 @@ class ReferenceResolver(object):
     """
     link = self.reference_to_url(ref_full_name, relative_path_to_root)
     if code_ref:
-      return '[`%s`](%s)' % (link_text, link)
-    else:
+      link_text = '`' + link_text + '`'
+    if style == 'md':
       return '[%s](%s)' % (link_text, link)
+    else:
+      return '\href{%s}{%s}' % (link, link_text)
 
   def py_master_name(self, full_name):
     """Return the master name for a Python symbol name."""
@@ -268,9 +271,11 @@ class ReferenceResolver(object):
     if not ref_path:
       ref_path = documentation_path(master_name)
 
+    # TODO this breaks for files like ed.html and ed/ folder
+    ref_path = ref_path.replace('.md', '')
     return os.path.join(relative_path_to_root, ref_path)
 
-  def _one_ref(self, string, relative_path_to_root):
+  def _one_ref(self, string, relative_path_to_root, style):
     """Return a link for a single "@{symbol}" reference."""
     # Look for link text after $.
     dollar = string.rfind('$')
@@ -285,12 +290,12 @@ class ReferenceResolver(object):
     # Handle different types of references.
     if string.startswith('$'):  # Doc reference
       return self._doc_link(
-          string, link_text, manual_link_text, relative_path_to_root)
+          string, link_text, manual_link_text, relative_path_to_root, style)
 
     elif string.startswith('tensorflow::'):
       # C++ symbol
       return self._cc_link(
-          string, link_text, manual_link_text, relative_path_to_root)
+          string, link_text, manual_link_text, relative_path_to_root, style)
 
     else:
       is_python = False
@@ -300,14 +305,14 @@ class ReferenceResolver(object):
           break
       if is_python:  # Python symbol
         return self.python_link(link_text, string, relative_path_to_root,
-                                code_ref=not manual_link_text)
+                                code_ref=not manual_link_text, style=style)
 
     # Error!
     log_error('Did not understand "@{%s}"' % string)
     return 'ERROR:%s' % string
 
   def _doc_link(self, string, link_text, manual_link_text,
-                relative_path_to_root):
+                relative_path_to_root, style):
     """Generate a link for a @{$...} reference."""
     string = string[1:]  # remove leading $
 
@@ -323,7 +328,10 @@ class ReferenceResolver(object):
       if not manual_link_text: link_text = self._doc_index[string].title
       url = os.path.normpath(os.path.join(
           relative_path_to_root, '../..', self._doc_index[string].url))
-      return '[%s](%s%s)' % (link_text, url, hash_tag)
+      if style == 'md':
+        return '[%s](%s%s)' % (link_text, url, hash_tag)
+      else:
+        return '\href{%s%s}{%s}' % (url, hash_tag, link_text)
     return self._doc_missing(string, hash_tag, link_text, manual_link_text,
                              relative_path_to_root)
 
@@ -334,7 +342,7 @@ class ReferenceResolver(object):
     return link_text
 
   def _cc_link(self, string, link_text, unused_manual_link_text,
-               relative_path_to_root):
+               relative_path_to_root, style):
     """Generate a link for a @{tensorflow::...} reference."""
     # TODO(josh11b): Fix this hard-coding of paths.
     if string == 'tensorflow::ClientSession':
@@ -354,7 +362,10 @@ class ReferenceResolver(object):
     # to api_docs/cc, and then add ret.
     cc_relative_path = os.path.normpath(os.path.join(
         relative_path_to_root, '../cc', ret))
-    return '[`%s`](%s)' % (link_text, cc_relative_path)
+    if style == 'md':
+      return '[`%s`](%s)' % (link_text, cc_relative_path)
+    else:
+      return '\href{%s}{%s}' % (cc_relative_path, link_text)
 
 
 # TODO(aselle): Collect these into a big list for all modules and functions
@@ -1273,9 +1284,9 @@ class ParserConfig(object):
     self.index = index
     self.guide_index = guide_index
     self.base_dir = base_dir
-    self.defined_in_prefix = 'tensorflow/'
+    self.defined_in_prefix = 'edward/'
     self.code_url_prefix = (
-        'https://www.tensorflow.org/code/tensorflow/')  # pylint: disable=line-too-long
+        'https://github.com/blei-lab/edward/tree/master/edward/')  # pylint: disable=line-too-long
 
   def py_name_to_object(self, full_name):
     """Return the Python object for a Python symbol name."""
